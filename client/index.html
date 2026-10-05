@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 600px; }
+        textarea { width: 100%; height: 300px; font-family: monospace; }
+        input { width: calc(100% - 70px); padding: 8px; margin-top: 10px; }
+        button { width: 60px; padding: 8px; margin-left: 10px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <textarea id="chat" placeholder="Messages will appear here..." readonly></textarea>
+    <br>
+    <input type="text" id="q" placeholder="Ask...">
+    <button onclick="stream()">Send</button>
+
+    <script>
+        let messages = [];
+
+        async function stream() {
+            const input = document.getElementById('q').value.trim();
+            if (!input) return;
+
+            messages.push({role: 'user', content: input});
+            document.getElementById('q').value = '';
+            document.getElementById('chat').value += `User: ${input}\n`;
+
+            const resp = await fetch('/v1/chat/completions', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({messages, stream: true, max_tokens: 50})
+            });
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let assistantResponse = '';
+            document.getElementById('chat').value += 'Assistant: ';
+
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+
+                const text = decoder.decode(value);
+                const lines = text.split('\n');
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const {choices} = JSON.parse(line.slice(6));
+                            const token = choices[0]?.delta?.content || '';
+                            document.getElementById('chat').value += token;
+                            assistantResponse += token;
+                        } catch (e) {
+                            // ignore parse errors
+                        }
+                    }
+                }
+            }
+
+            messages.push({role: 'assistant', content: assistantResponse});
+            document.getElementById('chat').value += '\n\n';
+        }
+
+        document.getElementById('q').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') stream();
+        });
+    </script>
+</body>
+</html>
